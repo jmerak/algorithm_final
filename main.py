@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pylab import mpl
+
 import pulp
 import random
 
-
+from pylab import mpl
 # 设置显示中文字体
 mpl.rcParams["font.sans-serif"] = ["SimHei"]
 
