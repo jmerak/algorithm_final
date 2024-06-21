@@ -16,10 +16,38 @@ max_distance = 20
 speed = 60
 time_limit = 24 * 60 // t
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 50
+population_size = 5000
 generations = 100
 mutation_rate = 0.1
 crossover_rate = 0.8
+
+# 生成确定性地图
+def generate_deterministic_map():
+    # 确定性的配送中心坐标
+    centers = [
+        (0, (2, 2)),
+        (1, (2, 8)),
+        (2, (8, 2)),
+        (3, (8, 8)),
+        (4, (5, 5))
+    ]
+
+    # 确定性的卸货点坐标
+    points = [
+        (5, (3, 4)),
+        (6, (1, 5)),
+        (7, (9, 6)),
+        (8, (6, 5)),
+        (9, (7, 4)),
+        (10, (3, 9)),
+        (11, (2, 7)),
+        (12, (9, 1)),
+        (13, (9, 9)),
+        (14, (1, 4))
+    ]
+
+    return centers, points
+
 
 # 生成配送中心和卸货点的坐标和编号
 def generate_map(num_centers, num_points, map_size, max_distance):
@@ -45,7 +73,7 @@ def calculate_distance(point1, point2):
 def generate_orders(points):
     orders = []
     for point in points:
-        num_orders = random.randint(0, 3)
+        num_orders = random.randint(1, 3)  # 每个卸货点都至少有一个订单
         for _ in range(num_orders):
             priority = random.choice(['一般', '较紧急', '紧急'])
             orders.append((point, priority))
@@ -53,30 +81,36 @@ def generate_orders(points):
 
 # 初始化种群
 def initialize_population(centers, points, population_size, max_distance, n):
-    population = []
+    population = []  # 存储所有个体
     for _ in range(population_size):
         individual = []
+        remaining_points = points.copy()
         for center in centers:
-            random.shuffle(points)
             path = [center]  # 起始点为配送中心
-            current_distance = 0
-            current_load = 0
-            for point in points:
+            current_distance = 0  # 当前距离
+            current_load = 0  # 当前负载
+            i = 0
+            while i < len(remaining_points):
+                point = remaining_points[i]
                 distance_to_point = calculate_distance(path[-1][1], point[1])
-                if current_distance + distance_to_point + calculate_distance(point[1], center[1]) > max_distance:
+                if current_distance + distance_to_point + calculate_distance(point[1], center[1]) > max_distance or current_load + 1 > n:
                     path.append(center)  # 返回配送中心
                     individual.append(path)  # 添加当前路径到个体编码中
-                    path = [center, point]  # 新路径的起始点为配送中心和当前卸货点
-                    current_distance = calculate_distance(center[1], point[1])
-                    current_load = 1  # 重置当前负载
-                elif current_load + 1 <= n:
+                    path = [center]  # 新路径的起始点为配送中心
+                    current_distance = 0
+                    current_load = 0
+                else:
                     path.append(point)
                     current_distance += distance_to_point
                     current_load += 1
+                    remaining_points.pop(i)
+                    i -= 1
+                i += 1
             path.append(center)  # 最后返回配送中心
             individual.append(path)  # 添加最后一条路径到个体编码中
         population.append(individual)
     return population
+
 
 # 计算适应度
 def fitness(individual):
@@ -96,17 +130,9 @@ def selection(population, fitnesses):
 # 交叉操作
 def crossover(parent1, parent2):
     if random.random() < crossover_rate:
-        point = random.randint(1, min(len(parent1[0]), len(parent2[0])) - 2)
-        child1_path = parent1[0][:point] + [p for p in parent2[0] if p not in parent1[0][:point]]
-        child2_path = parent2[0][:point] + [p for p in parent1[0] if p not in parent2[0][:point]]
-
-        child1 = [child1_path]
-        child2 = [child2_path]
-
-        # Ensure child1 and child2 end with their respective centers
-        child1[0].append(parent1[0][0])
-        child2[0].append(parent2[0][0])
-
+        point = random.randint(1, min(len(parent1), len(parent2)) - 2)
+        child1 = parent1[:point] + [p for p in parent2 if p not in parent1[:point]]
+        child2 = parent2[:point] + [p for p in parent1 if p not in parent2[:point]]
         return child1, child2
     else:
         return parent1, parent2
@@ -121,7 +147,7 @@ def mutate(individual):
                     path[i], path[j] = path[j], path[i]
 
 # 遗传算法
-def genetic_algorithm(centers, points, population_size, generations):
+def genetic_algorithm(centers, points, population_size, generations, max_distance, n):
     population = initialize_population(centers, points, population_size, max_distance, n)
     best_individual = None
     best_fitness = float('-inf')
@@ -145,7 +171,7 @@ def genetic_algorithm(centers, points, population_size, generations):
         if current_fitness > best_fitness:
             best_fitness = current_fitness
             best_individual = current_best
-
+        print(f"best_individual: {best_individual}")
         print(f"Generation {generation + 1}: Best Fitness = {best_fitness}")
 
     return best_individual
@@ -171,7 +197,7 @@ def plot_map(centers, points, paths):
     # 绘制路径
     for path in paths:
         path_x, path_y = zip(*[point[1] for point in path])
-        plt.plot(path_x, path_y, 'r-', label='路径')
+        plt.plot(path_x, path_y, 'r-')
         for point in path:
             plt.annotate(point[0], point[1])
 
@@ -182,19 +208,25 @@ def plot_map(centers, points, paths):
     plt.grid(True)
     plt.show()
 
+
 # 生成地图
-centers, points = generate_map(num_centers, num_points, map_size, max_distance)
+# centers, points = generate_map(num_centers, num_points, map_size, max_distance)
+
+# 生成确定性地图
+centers, points = generate_deterministic_map()
 
 # 生成订单
 orders = generate_orders(points)
 
 # 运行遗传算法
-best_individual = genetic_algorithm(centers, points, population_size, generations)
+best_individual = genetic_algorithm(centers, points, population_size, generations, map_size, max_distance)
 
-# 输出最优路径
-print("最优路径：")
+# 输出最优路径和路径长度
+print("最优路径和路径长度：")
 for path in best_individual:
-    print(" -> ".join(str(point[0]) for point in path))
+    path_str = " -> ".join(str(point[0]) for point in path)
+    path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
+    print(f"路径: {path_str}，长度: {path_distance:.2f}")
 
 # 绘制最佳路径
 plot_map(centers, points, best_individual)
