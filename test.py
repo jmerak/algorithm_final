@@ -9,7 +9,7 @@ mpl.rcParams["font.sans-serif"] = ["SimHei"]
 
 # 参数
 num_centers = 5
-num_points = 20
+num_points = 50
 map_size = 10
 t = 30
 n = 5
@@ -17,7 +17,7 @@ max_distance = 20
 speed = 60
 time_limit = 24 * 60 // t
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 500
+population_size = 5000
 generations = 10
 mutation_rate = 0.1
 crossover_rate = 0.8
@@ -189,15 +189,17 @@ def mutate(individual):
     # 检查是否有卸货点未配送
     # 检查是否有卸货点未配送
     unvisited_points = [point for point in points if point not in sum(individual, [])]
+    new_path = [[] for _ in centers]  # 为每个配送中心初始化一条路径
     while unvisited_points:
         point = unvisited_points.pop(0)
         # 找到最近的配送中心
         nearest_center = min(centers, key=lambda center: calculate_distance(center[1], point[1]))
         # 获取当前路径
         path_index = centers.index(nearest_center)
-        path = []
-        path.append(nearest_center)
-        # path = individual[path_index]
+        # print(path_index)
+        path = new_path[path_index]
+        if not path:
+            path.append(nearest_center)  # 起始点为配送中心
         current_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
         distance_to_point = calculate_distance(path[-1][1], point[1])
         # 判断加入当前点后是否超过最大距离
@@ -206,7 +208,13 @@ def mutate(individual):
         else:
             path.append(nearest_center)  # 返回配送中心
             path = [nearest_center, point]  # 开始新路径
-        individual.append(path)
+        # print(path)
+        new_path[path_index] = path
+        # print(new_path)
+    # print(new_path)
+    for path in new_path:
+        if path:
+            individual.append(path)
     # 确保所有路径以配送中心结束
     for path in individual:
         if path and path[-1][0] != path[0][0]:
