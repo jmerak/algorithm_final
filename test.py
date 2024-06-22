@@ -10,7 +10,7 @@ mpl.rcParams["font.sans-serif"] = ["SimHei"]
 
 # 参数
 num_centers = 5
-num_points = 10
+num_points = 20
 map_size = 10
 t = 30
 n = 5
@@ -71,63 +71,68 @@ def generate_map(num_centers, num_points, map_size, max_distance):
 def calculate_distance(point1, point2):
     return np.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
-# 修复生成订单函数，确保每个订单元组包含订单时间和截止时间
+# 生成订单函数，使用模拟时间
 def generate_orders(points):
     orders = []
-    current_time = datetime.datetime.now()  # 获取当前时间
+    current_time = 0  # 模拟时间从0开始
     for point in points:
         num_orders = random.randint(1, 3)  # 每个卸货点都至少有一个订单
         for _ in range(num_orders):
             priority = random.choice(['一般', '较紧急', '紧急'])
             order_time = current_time
             if priority == '一般':
-                deadline = current_time + datetime.timedelta(hours=3)
+                deadline = current_time + 180  # 3小时
             elif priority == '较紧急':
-                deadline = current_time + datetime.timedelta(hours=1.5)
+                deadline = current_time + 90  # 1.5小时
             else:  # '紧急'
-                deadline = current_time + datetime.timedelta(minutes=30)
+                deadline = current_time + 30  # 30分钟
             orders.append((point, priority, order_time, deadline))  # 添加订单信息
     return orders
 
 
-# 修改路径规划函数：动态更新路径规划
 def initialize_population(centers, points, population_size, max_distance, n):
-    population = []  # 存储所有个体
+    population = []
     for _ in range(population_size):
-        individual = []
+        individual = [[] for _ in centers]  # 为每个配送中心初始化一条路径
         remaining_points = points.copy()
-        for center in centers:
-            path = [center]  # 起始点为配送中心
-            current_distance = 0  # 当前距离
-            current_load = 0  # 当前负载
-            while current_load < n and remaining_points:  # 只要负载小于阈值且还有卸货点
-                nearest_point = min(remaining_points, key=lambda x: calculate_distance(path[-1][1], x[1]))
-                distance_to_point = calculate_distance(path[-1][1], nearest_point[1])
-                if current_distance + distance_to_point + calculate_distance(nearest_point[1], center[1]) > max_distance:
-                    break  # 超出距离限制，结束当前路径
-                path.append(nearest_point)
-                current_distance += distance_to_point
-                current_load += 1
-                remaining_points.remove(nearest_point)
-            path.append(center)  # 最后返回配送中心
-            individual.append(path)  # 添加最后一条路径到个体编码中
+        while remaining_points:
+            point = remaining_points.pop(0)
+            # 找到最近的配送中心
+            nearest_center = min(centers, key=lambda center: calculate_distance(center[1], point[1]))
+            # 获取当前路径
+            path_index = centers.index(nearest_center)
+            path = individual[path_index]
+            if not path:
+                path.append(nearest_center)  # 起始点为配送中心
+            current_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
+            distance_to_point = calculate_distance(path[-1][1], point[1])
+            # 判断加入当前点后是否超过最大距离
+            if current_distance + distance_to_point + calculate_distance(point[1], nearest_center[1]) <= max_distance:
+                path.append(point)
+            else:
+                path.append(nearest_center)  # 返回配送中心
+                path = [nearest_center, point]  # 开始新路径
+            individual[path_index] = path
+        # 确保所有路径以配送中心结束
+        for path in individual:
+            if path and path[-1][0] != path[0][0]:
+                path.append(path[0])
         population.append(individual)
     return population
 
 
-# 修改 fitness 函数，确保正确访问订单元组的时间信息并计算时效性惩罚
+
 def fitness(individual, orders, current_time):
     total_distance = 0
     total_time = 0
     penalty = 0  # 添加 penalty 变量
     for path in individual:
         path_distance = 0
-        path_time = 0
         for i in range(len(path) - 1):
             path_distance += calculate_distance(path[i][1], path[i + 1][1])
-            path_time += path_distance / speed  # 根据距离计算时间
+        if path_distance > max_distance:
+            penalty += 10000  # 如果路径超过最大飞行距离，给予较大的惩罚
         total_distance += path_distance
-        total_time += path_time
 
     # 计算订单时效性惩罚
     for path in individual:
@@ -137,8 +142,9 @@ def fitness(individual, orders, current_time):
             deadline = orders[order_id][3]  # 截止时间
             if current_time > deadline:  # 如果当前时间超过截止时间
                 penalty += 1000  # 添加惩罚项，可根据具体情况调整
+    # print(total_distance, penalty)
+    return 1 / (total_distance + penalty + 0.001)  # 加入惩罚项的适应度计算
 
-    return 1 / (total_distance + penalty)  # 加入惩罚项的适应度计算
 
 
 # 选择操作
@@ -147,6 +153,7 @@ def selection(population, fitnesses):
     return population[selected_indices[0]], population[selected_indices[1]]
 
 
+# 交叉操作
 def crossover(parent1, parent2):
     if random.random() < crossover_rate:
         children1 = []
@@ -162,20 +169,18 @@ def crossover(parent1, parent2):
             children1.append(child1)
             children2.append(child2)
 
-        # 修复路径终点为配送中心
         for child in children1:
-            if child[-1][0] != child[0][0]:  # 判断是否为配送中心
-                child.append(child[0])  # 添加终点配送中心
+            if child[-1][0] != child[0][0]:
+                child.append(child[0])
         for child in children2:
-            if child[-1][0] != child[0][0]:  # 判断是否为配送中心
-                child.append(child[0])  # 添加终点配送中心
+            if child[-1][0] != child[0][0]:
+                child.append(child[0])
 
         return children1, children2
     else:
         return parent1, parent2
 
 
-# 变异操作
 def mutate(individual):
     for path in individual:
         if len(path) > 2:
@@ -183,15 +188,21 @@ def mutate(individual):
                 if random.random() < mutation_rate:
                     j = random.randint(1, len(path) - 2)
                     path[i], path[j] = path[j], path[i]
+            # 确保路径合法性
+            path_distance = 0
+            for i in range(len(path) - 1):
+                path_distance += calculate_distance(path[i][1], path[i + 1][1])
+                if path_distance > max_distance:
+                    path[i+1:] = [path[0]]  # 超出最大飞行距离后返回配送中心
+                    break
 
 
-# 修改遗传算法函数，传入订单信息
 def genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders):
     population = initialize_population(centers, points, population_size, max_distance, n)
     best_individual = None
     best_fitness = float('-inf')
 
-    current_time = datetime.datetime.now()  # 获取当前时间
+    current_time = 0  # 获取当前时间
 
     for generation in range(generations):
         fitnesses = np.array([fitness(ind, orders, current_time) for ind in population])  # 传入订单信息和当前时间
@@ -251,10 +262,10 @@ def plot_map(centers, points, paths):
 
 
 # 生成地图
-# centers, points = generate_map(num_centers, num_points, map_size, max_distance)
+centers, points = generate_map(num_centers, num_points, map_size, max_distance)
 
 # 生成确定性地图
-centers, points = generate_deterministic_map()
+# centers, points = generate_deterministic_map()
 
 # 生成订单
 orders = generate_orders(points)
