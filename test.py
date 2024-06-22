@@ -8,8 +8,8 @@ from pylab import mpl
 mpl.rcParams["font.sans-serif"] = ["SimHei"]
 
 # 参数
-num_centers = 5
-num_points = 50
+num_centers = 10
+num_points = 100
 map_size = 10
 t = 30
 n = 5
@@ -186,7 +186,16 @@ def crossover(parent1, parent2):
 
 
 def mutate(individual):
-    # 检查是否有卸货点未配送
+    # 移除超出最大飞行距离的部分
+    for path in individual:
+        if len(path) > 2:
+            path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
+            if path_distance > max_distance:
+                excess_distance = path_distance - max_distance
+                while excess_distance > 0 and len(path) > 2:
+                    last_point = path.pop()
+                    excess_distance -= calculate_distance(last_point[1], path[-1][1])
+
     # 检查是否有卸货点未配送
     unvisited_points = [point for point in points if point not in sum(individual, [])]
     new_path = [[] for _ in centers]  # 为每个配送中心初始化一条路径
@@ -208,10 +217,8 @@ def mutate(individual):
         else:
             path.append(nearest_center)  # 返回配送中心
             path = [nearest_center, point]  # 开始新路径
-        # print(path)
         new_path[path_index] = path
-        # print(new_path)
-    # print(new_path)
+
     for path in new_path:
         if path:
             individual.append(path)
@@ -220,24 +227,10 @@ def mutate(individual):
         if path and path[-1][0] != path[0][0]:
             path.append(path[0])
     # population.append(individual)
-
-    # 移除超出最大飞行距离的部分
-    for path in individual:
-        if len(path) > 2:
-            path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
-            if path_distance > max_distance:
-                excess_distance = path_distance - max_distance
-                while excess_distance > 0 and len(path) > 2:
-                    last_point = path.pop()
-                    excess_distance -= calculate_distance(last_point[1], path[-1][1])
-
+    unvisited_points = [point for point in points if point not in sum(individual, [])]
+    if unvisited_points:
+        mutate(individual)
     return individual
-
-
-
-
-
-
 
 
 def genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders):
