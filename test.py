@@ -8,8 +8,8 @@ from pylab import mpl
 mpl.rcParams["font.sans-serif"] = ["SimHei"]
 
 # 参数
-num_centers = 10
-num_points = 100
+num_centers = 5
+num_points = 50
 map_size = 10
 t = 30
 n = 5
@@ -17,10 +17,10 @@ max_distance = 20
 speed = 60
 time_limit = 24 * 60 // t
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 5000
-generations = 10
+population_size = 500
+generations = 100
 mutation_rate = 0.1
-crossover_rate = 0.8
+crossover_rate = 0.9
 
 # 生成确定性地图
 def generate_deterministic_map():
@@ -89,34 +89,19 @@ def generate_orders(points):
     return orders
 
 
+def print_individual(individual):
+    print("path：")
+    for path in individual:
+        path_str = " -> ".join(str(point[0]) for point in path)
+        path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
+        print(f"路径: {path_str}，长度: {path_distance:.2f}")
+
+
 def initialize_population(centers, points, population_size, max_distance, n):
     population = []
     for _ in range(population_size):
         individual = [[] for _ in centers]  # 为每个配送中心初始化一条路径
-        remaining_points = points.copy()
-        while remaining_points:
-            point = remaining_points.pop(0)
-            # 找到最近的配送中心
-            nearest_center = min(centers, key=lambda center: calculate_distance(center[1], point[1]))
-            # 获取当前路径
-            path_index = centers.index(nearest_center)
-            path = individual[path_index]
-            if not path:
-                path.append(nearest_center)  # 起始点为配送中心
-            current_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
-            distance_to_point = calculate_distance(path[-1][1], point[1])
-            # 判断加入当前点后是否超过最大距离
-            if current_distance + distance_to_point + calculate_distance(point[1], nearest_center[1]) <= max_distance:
-                path.append(point)
-            else:
-                path.append(nearest_center)  # 返回配送中心
-                path = [nearest_center, point]  # 开始新路径
-            individual[path_index] = path
-        # 确保所有路径以配送中心结束
-        for path in individual:
-            if path and path[-1][0] != path[0][0]:
-                path.append(path[0])
-        population.append(individual)
+        population.append([path for path in individual_fix(individual) if path])
     return population
 
 
@@ -182,10 +167,69 @@ def crossover(parent1, parent2):
         return parent1, parent2
 
 
+def pmx_crossover(parent1, parent2):
+    def pmx_single(parent_a, parent_b):
+        size = len(parent_a)
+        child = [None] * size
+
+        # 选择两个交叉点
+        point1, point2 = sorted(random.sample(range(1, size - 1), 2))
+
+        # 将交叉点之间的部分复制到子代
+        child[point1:point2] = parent_a[point1:point2]
+
+        # 处理交叉点之外的部分
+        for i in range(point1, point2):
+            if parent_b[i] not in child:
+                j = i
+                while point1 <= j < point2:
+                    j = parent_b.index(parent_a[j])
+                child[j] = parent_b[i]
+
+        # 处理剩余位置
+        for i in range(size):
+            if child[i] is None:
+                child[i] = parent_b[i]
+
+        return child
+
+    if random.random() < crossover_rate:
+        children1 = []
+        children2 = []
+
+        for i in range(min(len(parent1), len(parent2))):
+            parent1_nodes = set([node for node in parent1[i] if node[0] != parent1[i][0][0]])
+            parent2_nodes = set([node for node in parent2[i] if node[0] != parent2[i][0][0]])
+
+            if parent1_nodes == parent2_nodes:  # 只有节点集相同时才执行交叉
+                if len(parent1[i]) > 3 and len(parent2[i]) > 3:
+                    child1 = pmx_single(parent1[i], parent2[i])
+                    child2 = pmx_single(parent2[i], parent1[i])
+                else:
+                    child1 = parent1[i]
+                    child2 = parent2[i]
+                if child1:
+                    children1.append(child1)
+                if child2:
+                    children2.append(child2)
+            else:
+                children1.append(parent1[i])
+                children2.append(parent2[i])
+
+        # 确保所有路径以配送中心结束
+        for child in children1:
+            if child[-1][0] != child[0][0]:
+                child.append(child[0])
+        for child in children2:
+            if child[-1][0] != child[0][0]:
+                child.append(child[0])
+
+        return children1, children2
+    else:
+        return parent1, parent2
 
 
-
-def mutate(individual):
+def individual_fix(individual):
     # 移除超出最大飞行距离的部分
     for path in individual:
         if len(path) > 2:
@@ -212,7 +256,7 @@ def mutate(individual):
         current_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
         distance_to_point = calculate_distance(path[-1][1], point[1])
         # 判断加入当前点后是否超过最大距离
-        if current_distance + distance_to_point + calculate_distance(point[1], nearest_center[1]) <= max_distance:
+        if current_distance + distance_to_point + calculate_distance(point[1], nearest_center[1]) <= max_distance and len(path) < n + 1:
             path.append(point)
         else:
             path.append(nearest_center)  # 返回配送中心
@@ -226,11 +270,37 @@ def mutate(individual):
     for path in individual:
         if path and path[-1][0] != path[0][0]:
             path.append(path[0])
-    # population.append(individual)
     unvisited_points = [point for point in points if point not in sum(individual, [])]
     if unvisited_points:
-        mutate(individual)
+        individual_fix(individual)
     return individual
+
+
+def mutate(individual):
+    for path in individual:
+        if random.random() < mutation_rate and len(path) > 2:
+            mutation_type = random.randint(1, 2)  # 随机选择变异类型
+            # mutation_type = 2
+            unloading_points = [idx for idx, point in enumerate(path) if idx != 0 and idx != len(path) - 1]
+
+            if mutation_type == 1 and len(unloading_points) > 1:  # 路径交换，确保至少有两个卸货点
+                swap_points = random.sample(unloading_points, 2)
+                path[swap_points[0]], path[swap_points[1]] = path[swap_points[1]], path[swap_points[0]]
+            elif mutation_type == 2 and len(unloading_points) > 1:  # 路径倒置，确保至少有两个卸货点
+                reverse_start = random.choice(unloading_points)
+                valid_end_points = [idx for idx in unloading_points if idx > reverse_start]
+                if valid_end_points:  # 确保有合法的结束点
+                    reverse_end = random.choice(valid_end_points)
+                    path[reverse_start:reverse_end + 1] = reversed(path[reverse_start:reverse_end + 1])
+
+    # 使用 individual_fix 函数修复路径
+    individual = individual_fix(individual)
+    return individual
+
+
+
+
+
 
 
 def genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders):
@@ -246,7 +316,7 @@ def genetic_algorithm(centers, points, population_size, generations, map_size, m
         new_population = []
         for _ in range(population_size // 2):
             parent1, parent2 = selection(population, fitnesses)
-            child1, child2 = crossover(parent1, parent2)
+            child1, child2 = pmx_crossover(parent1, parent2)
             mutate(child1)
             mutate(child2)
             new_population.extend([child1, child2])
