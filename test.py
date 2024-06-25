@@ -18,7 +18,7 @@ speed = 60
 time_limit = 24 * 60 // t
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
 population_size = 500
-generations = 100
+generations = 10
 mutation_rate = 0.1
 crossover_rate = 0.9
 
@@ -297,12 +297,6 @@ def mutate(individual):
     individual = individual_fix(individual)
     return individual
 
-
-
-
-
-
-
 def genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders):
     population = initialize_population(centers, points, population_size, max_distance, n)
     best_individual = None
@@ -336,35 +330,37 @@ def genetic_algorithm(centers, points, population_size, generations, map_size, m
 
 # 绘制地图
 def plot_map(centers, points, paths):
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(12, 12))
 
     # 绘制配送中心
     centers_x, centers_y = zip(*[center[1] for center in centers])
     centers_labels = [center[0] for center in centers]
-    plt.scatter(centers_x, centers_y, c='blue', marker='s', label='配送中心')
+    plt.scatter(centers_x, centers_y, c='red', marker='s', s=100, label='配送中心')
     for i, txt in enumerate(centers_labels):
-        plt.annotate(txt, (centers_x[i], centers_y[i]))
+        plt.annotate(txt, (centers_x[i], centers_y[i]), fontsize=12, fontweight='bold', ha='right')
 
     # 绘制卸货点
     points_x, points_y = zip(*[point[1] for point in points])
     points_labels = [point[0] for point in points]
-    plt.scatter(points_x, points_y, c='green', marker='o', label='卸货点')
+    plt.scatter(points_x, points_y, c='green', marker='o', s=60, label='卸货点')
     for i, txt in enumerate(points_labels):
-        plt.annotate(txt, (points_x[i], points_y[i]))
+        plt.annotate(txt, (points_x[i], points_y[i]), fontsize=10, ha='right')
 
     # 绘制路径
-    for path in paths:
+    colors = plt.cm.rainbow(np.linspace(0, 1, len(paths)))  # 使用不同颜色绘制每条路径
+    for path, color in zip(paths, colors):
         path_x, path_y = zip(*[point[1] for point in path])
-        plt.plot(path_x, path_y, 'r-')
+        plt.plot(path_x, path_y, '-', color=color, linewidth=2, alpha=0.7, label='路径')
         for point in path:
-            plt.annotate(point[0], point[1])
+            plt.annotate(point[0], point[1], fontsize=8, ha='center')
 
-    plt.title('无人机配送路径规划')
-    plt.xlabel('X 坐标')
-    plt.ylabel('Y 坐标')
-    plt.legend()
-    plt.grid(True)
+    plt.title('无人机配送路径规划', fontsize=16, fontweight='bold')
+    plt.xlabel('X 坐标', fontsize=14)
+    plt.ylabel('Y 坐标', fontsize=14)
+    plt.legend(loc='best', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.6)
     plt.show()
+
 
 
 # 生成地图
