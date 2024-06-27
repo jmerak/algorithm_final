@@ -18,7 +18,7 @@ max_distance = 20
 speed = 60
 time_limit = 24 * 60 // t
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 50
+population_size = 500
 generations = 10
 mutation_rate = 0.1
 crossover_rate = 0.9
@@ -143,7 +143,7 @@ def initialize_population(centers, points, population_size, max_distance, order_
     for i in range(population_size):
         individual = [[] for _ in centers]  # 为每个配送中心初始化一条路径
         population.append([path for path in individual_fix(individual, order_counts) if path])
-        print(population[i])
+        # print(population[i])
     return population
 
 
@@ -176,7 +176,7 @@ def pmx_crossover(parent1, parent2):
     def pmx_single(parent_a, parent_b):
         size = min(len(parent_a), len(parent_b))
         child = [None] * size
-        print(111111, parent_a, parent_b)
+        # print(111111, parent_a, parent_b)
         # 选择两个交叉点
         point1, point2 = sorted(random.sample(range(1, size - 1), 2))
 
@@ -248,8 +248,6 @@ def individual_fix(individual, order_counts):
                     last_point = path.pop()
                     excess_distance -= distance_matrix[last_point[0]][path[-1][0]]
                     excess_orders -= order_counts[last_point[0]]
-        else:
-            individual.pop(individual.index(path))
 
     # 检查是否有卸货点未配送
     unvisited_points = [point for point in points if point not in sum(individual, [])]
@@ -272,7 +270,7 @@ def individual_fix(individual, order_counts):
         if current_distance + distance_to_point + distance_matrix[point[0]][nearest_center[0]] <= max_distance and current_orders + order_counts[point[0]] <= n:
             path.append(point)
         else:
-            path.append(nearest_center)  # 返回配送中心
+            # path.append(nearest_center)  # 返回配送中心
             individual.append(path)
             path = [nearest_center, point]  # 开始新路径
         # new_path[path_index] = path
@@ -285,15 +283,20 @@ def individual_fix(individual, order_counts):
         if path and path[-1][0] != path[0][0]:
             path.append(path[0])
     unvisited_points = [point for point in points if point not in sum(individual, [])]
+    print(unvisited_points)
     if unvisited_points:
         individual_fix(individual, order_counts)
+    individual = [path for path in individual if len(path) > 2]
+    # 使用集合去重
+    individual_set = {tuple(path) for path in individual}
+    individual = [list(path) for path in individual_set]
     return individual
 
 
 def mutate(individual):
     for path in individual:
         if random.random() < mutation_rate and len(path) > 2:
-            mutation_type = random.randint(1, 3)  # 随机选择变异类型
+            mutation_type = random.randint(1, 4)  # 随机选择变异类型
             # mutation_type = 2
             unloading_points = [idx for idx, point in enumerate(path) if idx != 0 and idx != len(path) - 1]
 
@@ -306,7 +309,9 @@ def mutate(individual):
                 if valid_end_points:  # 确保有合法的结束点
                     reverse_end = random.choice(valid_end_points)
                     path[reverse_start:reverse_end + 1] = reversed(path[reverse_start:reverse_end + 1])
-            elif mutation_type == 3 and len(unloading_points) > 0:  # 随机选择一个点插入到另一条路径
+            elif mutation_type == 3 :
+                path = []
+            elif mutation_type == 4 and len(unloading_points) > 0:  # 随机选择一个点插入到另一条路径
                 selected_point_index = random.choice(unloading_points)
                 selected_point = path.pop(selected_point_index)
 
@@ -325,8 +330,6 @@ def mutate(individual):
                     # 如果没有其他路径，则将点插回原路径的随机位置
                     insert_position = random.randint(1, len(path) - 1)
                     path.insert(insert_position, selected_point)
-
-
     # 使用 individual_fix 函数修复路径
     individual = individual_fix(individual, order_counts)
     return individual
