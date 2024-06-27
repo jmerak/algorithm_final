@@ -1,10 +1,9 @@
 import numpy as np
 import random
+import math
 import matplotlib.pyplot as plt
 from pylab import mpl
 from matplotlib.patches import Circle
-
-
 
 # 设置显示中文字体
 mpl.rcParams["font.sans-serif"] = ["SimHei"]
@@ -19,10 +18,11 @@ max_distance = 20
 speed = 60
 time_limit = 24 * 60 // t
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 500
+population_size = 50
 generations = 10
 mutation_rate = 0.1
 crossover_rate = 0.9
+
 
 # 生成确定性地图
 def generate_deterministic_map():
@@ -52,24 +52,7 @@ def generate_deterministic_map():
     return centers, points
 
 
-# 生成配送中心和卸货点的坐标和编号
 def generate_map(num_centers, num_points, map_size, max_distance):
-    centers = [(i, (random.uniform(0, map_size), random.uniform(0, map_size))) for i in range(num_centers)]
-
-    points = []
-    point_id = num_centers  # 编号从配送中心之后开始
-    for _ in range(num_points):
-        while True:
-            point = (point_id, (random.uniform(0, map_size), random.uniform(0, map_size)))
-            if all(calculate_distance(center[1], point[1]) <= max_distance / 2 for center in centers):
-                points.append(point)
-                point_id += 1
-                break
-
-    return centers, points
-
-
-def generate_map1(num_centers, num_points, map_size, max_distance):
     # 在地图的四个角和中心生成配送中心
     centers = [
         (0, (max_distance/2, max_distance/2)),
@@ -100,12 +83,20 @@ def generate_map1(num_centers, num_points, map_size, max_distance):
                     point_id += 1
                     break
 
-    return centers, points
+    # 计算所有点对之间的距离
+    all_points = centers + points
+    num_all_points = len(all_points)
+    distance_matrix = np.zeros((num_all_points, num_all_points))
 
+    for i in range(num_all_points):
+        for j in range(i + 1, num_all_points):
+            point1 = all_points[i][1]
+            point2 = all_points[j][1]
+            distance = math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
+            distance_matrix[i][j] = distance
+            distance_matrix[j][i] = distance
 
-# 距离计算
-def calculate_distance(point1, point2):
-    return np.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
+    return centers, points, distance_matrix
 
 
 # 生成订单函数，使用模拟时间
@@ -127,46 +118,51 @@ def generate_orders(points):
     return orders
 
 
+def maintain_order_counts(centers, points, orders):
+    # 初始化订单数量数组，配送中心的订单数量为0
+    num_all_points = len(centers) + len(points)
+    order_counts = [0] * num_all_points
+
+    # 记录每个点的订单数量
+    for order in orders:
+        point_id = order[0][0]
+        order_counts[point_id] += 1
+
+    return order_counts
+
+
 def print_individual(individual):
-    print("path：")
     for path in individual:
         path_str = " -> ".join(str(point[0]) for point in path)
-        path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
+        path_distance = sum(distance_matrix[path[i][0]][path[i+1][0]] for i in range(len(path) - 1))
         print(f"路径: {path_str}，长度: {path_distance:.2f}")
 
 
-def initialize_population(centers, points, population_size, max_distance, n):
+def initialize_population(centers, points, population_size, max_distance, order_counts, n):
     population = []
-    for _ in range(population_size):
+    for i in range(population_size):
         individual = [[] for _ in centers]  # 为每个配送中心初始化一条路径
-        population.append([path for path in individual_fix(individual) if path])
+        population.append([path for path in individual_fix(individual, order_counts) if path])
+        print(population[i])
     return population
 
 
-
-def fitness(individual, orders, current_time):
+def fitness(individual):
     total_distance = 0
-    total_time = 0
     penalty = 0  # 添加 penalty 变量
     for path in individual:
         path_distance = 0
+        path_orders = 0
         for i in range(len(path) - 1):
-            path_distance += calculate_distance(path[i][1], path[i + 1][1])
+            path_distance += distance_matrix[path[i][0]][path[i + 1][0]]
+            path_orders += order_counts[path[i][0]]
         if path_distance > max_distance:
             penalty += 10000  # 如果路径超过最大飞行距离，给予较大的惩罚
+        if path_distance > n:
+            penalty += 10000
         total_distance += path_distance
 
-    # 计算订单时效性惩罚
-    for path in individual:
-        for order in path[1:-1]:  # 跳过起始和终点
-            order_id = order[0]  # 订单编号
-            order_time = orders[order_id][2]  # 订单时间
-            deadline = orders[order_id][3]  # 截止时间
-            if current_time > deadline:  # 如果当前时间超过截止时间
-                penalty += 1000  # 添加惩罚项，可根据具体情况调整
-    # print(total_distance, penalty)
     return 1 / (total_distance + penalty + 0.001)  # 加入惩罚项的适应度计算
-
 
 
 # 选择操作
@@ -176,40 +172,11 @@ def selection(population, fitnesses):
 
 
 # 交叉操作
-def crossover(parent1, parent2):
-    if random.random() < crossover_rate:
-        children1 = []
-        children2 = []
-        for i in range(min(len(parent1), len(parent2))):  # 修改此处
-            if len(parent1[i]) > 2 and len(parent2[i]) > 2:
-                point = random.randint(1, min(len(parent1[i]), len(parent2[i])) - 2)
-                child1 = parent1[i][:point] + [p for p in parent2[i] if p not in parent1[i][:point]]
-                child2 = parent2[i][:point] + [p for p in parent1[i] if p not in parent2[i][:point]]
-            else:
-                child1 = parent1[i]
-                child2 = parent2[i]
-            if child1:  # 检查孩子列表中是否有空列表
-                children1.append(child1)
-            if child2:  # 检查孩子列表中是否有空列表
-                children2.append(child2)
-
-        for child in children1:
-            if child[-1][0] != child[0][0]:
-                child.append(child[0])
-        for child in children2:
-            if child[-1][0] != child[0][0]:
-                child.append(child[0])
-
-        return children1, children2
-    else:
-        return parent1, parent2
-
-
 def pmx_crossover(parent1, parent2):
     def pmx_single(parent_a, parent_b):
-        size = len(parent_a)
+        size = min(len(parent_a), len(parent_b))
         child = [None] * size
-
+        print(111111, parent_a, parent_b)
         # 选择两个交叉点
         point1, point2 = sorted(random.sample(range(1, size - 1), 2))
 
@@ -267,40 +234,48 @@ def pmx_crossover(parent1, parent2):
         return parent1, parent2
 
 
-def individual_fix(individual):
+def individual_fix(individual, order_counts):
     # print(individual)
     # 移除超出最大飞行距离的部分
     for path in individual:
         if len(path) > 2:
-            path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
-            if path_distance > max_distance:
+            path_distance = sum(distance_matrix[path[i][0]][path[i+1][0]] for i in range(len(path) - 1))
+            path_orders = sum(order_counts[point[0]] for point in path)
+            if path_distance > max_distance or path_orders > n:
                 excess_distance = path_distance - max_distance
-                while excess_distance > 0 and len(path) > 2:
+                excess_orders = path_orders - n
+                while (excess_distance > 0 or excess_orders > 0) and len(path) > 2:
                     last_point = path.pop()
-                    excess_distance -= calculate_distance(last_point[1], path[-1][1])
+                    excess_distance -= distance_matrix[last_point[0]][path[-1][0]]
+                    excess_orders -= order_counts[last_point[0]]
+        else:
+            individual.pop(individual.index(path))
 
     # 检查是否有卸货点未配送
     unvisited_points = [point for point in points if point not in sum(individual, [])]
+    random.shuffle(unvisited_points)
     new_path = [[] for _ in centers]  # 为每个配送中心初始化一条路径
     while unvisited_points:
         point = unvisited_points.pop(0)
         # 找到最近的配送中心
-        nearest_center = min(centers, key=lambda center: calculate_distance(center[1], point[1]))
+        nearest_center = min(centers, key=lambda center: distance_matrix[center[0]][point[0]])
         # 获取当前路径
         path_index = centers.index(nearest_center)
         # print(path_index)
         path = new_path[path_index]
-        if not path:
+        if len(path) == 0:
             path.append(nearest_center)  # 起始点为配送中心
-        current_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
-        distance_to_point = calculate_distance(path[-1][1], point[1])
+        current_distance = sum(distance_matrix[path[i][0]][path[i+1][0]] for i in range(len(path) - 1))
+        distance_to_point = distance_matrix[path[-1][0]][point[0]]
+        current_orders = sum(order_counts[point[0]] for point in path)
         # 判断加入当前点后是否超过最大距离
-        if current_distance + distance_to_point + calculate_distance(point[1], nearest_center[1]) <= max_distance and len(path) < n + 1:
+        if current_distance + distance_to_point + distance_matrix[point[0]][nearest_center[0]] <= max_distance and current_orders + order_counts[point[0]] <= n:
             path.append(point)
         else:
             path.append(nearest_center)  # 返回配送中心
+            individual.append(path)
             path = [nearest_center, point]  # 开始新路径
-        new_path[path_index] = path
+        # new_path[path_index] = path
 
     for path in new_path:
         if path:
@@ -311,14 +286,14 @@ def individual_fix(individual):
             path.append(path[0])
     unvisited_points = [point for point in points if point not in sum(individual, [])]
     if unvisited_points:
-        individual_fix(individual)
+        individual_fix(individual, order_counts)
     return individual
 
 
 def mutate(individual):
     for path in individual:
         if random.random() < mutation_rate and len(path) > 2:
-            mutation_type = random.randint(1, 2)  # 随机选择变异类型
+            mutation_type = random.randint(1, 3)  # 随机选择变异类型
             # mutation_type = 2
             unloading_points = [idx for idx, point in enumerate(path) if idx != 0 and idx != len(path) - 1]
 
@@ -331,26 +306,47 @@ def mutate(individual):
                 if valid_end_points:  # 确保有合法的结束点
                     reverse_end = random.choice(valid_end_points)
                     path[reverse_start:reverse_end + 1] = reversed(path[reverse_start:reverse_end + 1])
+            elif mutation_type == 3 and len(unloading_points) > 0:  # 随机选择一个点插入到另一条路径
+                selected_point_index = random.choice(unloading_points)
+                selected_point = path.pop(selected_point_index)
+
+                # 找到该点所属的配送中心
+                center_id = path[0][0]
+                # 找到所有其他由该配送中心负责的路径
+                other_paths = [p for p in individual if p[0][0] == center_id and p != path]
+
+                if other_paths:
+                    # 随机选择一个目标路径
+                    target_path = random.choice(other_paths)
+                    # 随机选择一个插入位置
+                    insert_position = random.randint(1, len(target_path) - 1)
+                    target_path.insert(insert_position, selected_point)
+                else:
+                    # 如果没有其他路径，则将点插回原路径的随机位置
+                    insert_position = random.randint(1, len(path) - 1)
+                    path.insert(insert_position, selected_point)
+
 
     # 使用 individual_fix 函数修复路径
-    individual = individual_fix(individual)
+    individual = individual_fix(individual, order_counts)
     return individual
 
 
-def genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders):
-    population = initialize_population(centers, points, population_size, max_distance, n)
+def genetic_algorithm(centers, points, population_size, generations, max_distance, orders, order_counts, n):
+    population = initialize_population(centers, points, population_size, max_distance, order_counts, n)
     best_individual = None
     best_fitness = float('-inf')
 
     current_time = 0  # 获取当前时间
 
     for generation in range(generations):
-        fitnesses = np.array([fitness(ind, orders, current_time) for ind in population])  # 传入订单信息和当前时间
+        fitnesses = np.array([fitness(ind) for ind in population])  # 传入订单信息和当前时间
 
         new_population = []
         for _ in range(population_size // 2):
             parent1, parent2 = selection(population, fitnesses)
             child1, child2 = pmx_crossover(parent1, parent2)
+            # child1, child2 = parent1, parent2
             mutate(child1)
             mutate(child2)
             new_population.extend([child1, child2])
@@ -404,28 +400,43 @@ def plot_map(centers, points, paths, max_distance):
     plt.ylabel('Y 坐标', fontsize=14)
     plt.legend(loc='best', fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.6)
-    plt.axis([0, map_size, 0, map_size])
+    plt.axis((0, map_size, 0, map_size))
     plt.show()
 
 
 # 生成地图
-centers, points = generate_map1(num_centers, num_points, map_size, max_distance)
+centers, points, distance_matrix = generate_map(num_centers, num_points, map_size, max_distance)
 
 # 生成确定性地图
 # centers, points = generate_deterministic_map()
 
 # 生成订单
 orders = generate_orders(points)
-
+print(orders)
+order_counts = maintain_order_counts(centers, points, orders)
+print(order_counts)
 # 运行遗传算法
-best_individual = genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders)
+best_result = genetic_algorithm(centers, points, population_size, generations, max_distance, orders, order_counts, n)
 
-# 输出最优路径和路径长度
+# 输出最优路径
 print("最优路径和路径长度：")
-for path in best_individual:
+for path in best_result:
     path_str = " -> ".join(str(point[0]) for point in path)
-    path_distance = sum(calculate_distance(path[i][1], path[i + 1][1]) for i in range(len(path) - 1))
+    path_distance = sum(distance_matrix[path[i][0]][path[i + 1][0]] for i in range(len(path) - 1))
     print(f"路径: {path_str}，长度: {path_distance:.2f}")
 
+    # 输出订单信息
+    for point in path:
+        point_id = point[0]
+        if point_id < len(centers):
+            continue  # 跳过配送中心
+
+        point_orders = [order for order in orders if order[0][0] == point_id]
+        for order in point_orders:
+            order_priority = order[1]
+            order_time = order[2]
+            order_deadline = order[3]
+            print(f"  点 {point_id} 的订单 - 优先级: {order_priority}, 下单时间: {order_time}, 截止时间: {order_deadline}")
+
 # 绘制最佳路径
-plot_map(centers, points, best_individual, max_distance)
+plot_map(centers, points, best_result, max_distance)
