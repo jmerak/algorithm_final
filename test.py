@@ -2,6 +2,8 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from pylab import mpl
+from matplotlib.patches import Circle
+
 
 
 # 设置显示中文字体
@@ -10,7 +12,7 @@ mpl.rcParams["font.sans-serif"] = ["SimHei"]
 # 参数
 num_centers = 5
 num_points = 50
-map_size = 10
+map_size = 40
 t = 30
 n = 5
 max_distance = 20
@@ -66,9 +68,45 @@ def generate_map(num_centers, num_points, map_size, max_distance):
 
     return centers, points
 
+
+def generate_map1(num_centers, num_points, map_size, max_distance):
+    # 在地图的四个角和中心生成配送中心
+    centers = [
+        (0, (max_distance/2, max_distance/2)),
+        (1, (max_distance/2, map_size-max_distance/2)),
+        (2, (map_size-max_distance/2, max_distance/2)),
+        (3, (map_size-max_distance/2, map_size-max_distance/2)),
+        (4, (map_size / 2, map_size / 2))
+    ]
+
+    points = []
+    point_id = num_centers  # 编号从配送中心之后开始
+
+    for center in centers:
+        center_id, center_coord = center
+        num_points_per_center = num_points // num_centers  # 平均分配给每个配送中心的卸货点数量
+        for _ in range(num_points_per_center):
+            while True:
+                # 在配送中心为圆心，最大飞行距离的一半为半径的范围内生成卸货点
+                angle = random.uniform(0, 2 * np.pi)
+                radius = random.uniform(0, max_distance / 2)
+                point_x = center_coord[0] + radius * np.cos(angle)
+                point_y = center_coord[1] + radius * np.sin(angle)
+
+                # 确保生成的点在地图范围内
+                if 0 <= point_x <= map_size and 0 <= point_y <= map_size:
+                    point = (point_id, (point_x, point_y))
+                    points.append(point)
+                    point_id += 1
+                    break
+
+    return centers, points
+
+
 # 距离计算
 def calculate_distance(point1, point2):
     return np.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
+
 
 # 生成订单函数，使用模拟时间
 def generate_orders(points):
@@ -230,6 +268,7 @@ def pmx_crossover(parent1, parent2):
 
 
 def individual_fix(individual):
+    # print(individual)
     # 移除超出最大飞行距离的部分
     for path in individual:
         if len(path) > 2:
@@ -297,6 +336,7 @@ def mutate(individual):
     individual = individual_fix(individual)
     return individual
 
+
 def genetic_algorithm(centers, points, population_size, generations, map_size, max_distance, orders):
     population = initialize_population(centers, points, population_size, max_distance, n)
     best_individual = None
@@ -329,15 +369,20 @@ def genetic_algorithm(centers, points, population_size, generations, map_size, m
 
 
 # 绘制地图
-def plot_map(centers, points, paths):
+def plot_map(centers, points, paths, max_distance):
     plt.figure(figsize=(12, 12))
 
     # 绘制配送中心
     centers_x, centers_y = zip(*[center[1] for center in centers])
     centers_labels = [center[0] for center in centers]
-    plt.scatter(centers_x, centers_y, c='red', marker='s', s=100, label='配送中心')
+    plt.scatter(centers_x, centers_y, c='blue', marker='s', s=100, label='配送中心')
     for i, txt in enumerate(centers_labels):
         plt.annotate(txt, (centers_x[i], centers_y[i]), fontsize=12, fontweight='bold', ha='right')
+
+    # 绘制配送中心的服务范围圆
+    for center in centers:
+        circle = Circle(center[1], max_distance / 2, color='blue', alpha=0.1, linestyle='--')
+        plt.gca().add_patch(circle)
 
     # 绘制卸货点
     points_x, points_y = zip(*[point[1] for point in points])
@@ -350,7 +395,7 @@ def plot_map(centers, points, paths):
     colors = plt.cm.rainbow(np.linspace(0, 1, len(paths)))  # 使用不同颜色绘制每条路径
     for path, color in zip(paths, colors):
         path_x, path_y = zip(*[point[1] for point in path])
-        plt.plot(path_x, path_y, '-', color=color, linewidth=2, alpha=0.7, label='路径')
+        plt.plot(path_x, path_y, '-', color=color, linewidth=2, alpha=0.7)
         for point in path:
             plt.annotate(point[0], point[1], fontsize=8, ha='center')
 
@@ -359,12 +404,12 @@ def plot_map(centers, points, paths):
     plt.ylabel('Y 坐标', fontsize=14)
     plt.legend(loc='best', fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.6)
+    plt.axis([0, map_size, 0, map_size])
     plt.show()
 
 
-
 # 生成地图
-centers, points = generate_map(num_centers, num_points, map_size, max_distance)
+centers, points = generate_map1(num_centers, num_points, map_size, max_distance)
 
 # 生成确定性地图
 # centers, points = generate_deterministic_map()
@@ -383,4 +428,4 @@ for path in best_individual:
     print(f"路径: {path_str}，长度: {path_distance:.2f}")
 
 # 绘制最佳路径
-plot_map(centers, points, best_individual)
+plot_map(centers, points, best_individual, max_distance)
