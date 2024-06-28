@@ -14,13 +14,13 @@ num_centers = 5
 num_points = 60
 map_size = 40
 t = 30
-n = 5
+n = 10
 max_distance = 20
 speed = 60
-time_limit = 24 * 60 // t
+time_limit = 24 * 60
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 1000
-generations = 40
+population_size = 100
+generations = 20
 mutation_rate = 0.3
 crossover_rate = 0.9
 
@@ -73,9 +73,8 @@ def generate_map(num_centers, num_points, map_size, max_distance):
 
 
 # 生成订单函数，使用模拟时间
-def generate_orders(points):
+def generate_orders(current_time, points):
     orders = []
-    current_time = 0  # 模拟时间从0开始
     for point in points:
         num_orders = random.randint(1, 3)  # 每个卸货点都至少有一个订单
         for _ in range(num_orders):
@@ -89,6 +88,44 @@ def generate_orders(points):
                 deadline = current_time + 30  # 30分钟
             orders.append((point, priority, order_time, deadline))  # 添加订单信息
     return orders
+
+
+def process_orders(new_orders, remaining_orders, current_time):
+    current_to_deliver = []
+    updated_remaining_orders = []  # 复制剩余订单列表，防止直接修改原始列表
+
+    # 将剩余订单中的紧急和较紧急订单加入到当前配送列表,其余的加入待配送列表
+    for order in remaining_orders:
+        point, priority, order_time, deadline = order
+        time_left = deadline - current_time
+        urgency_level = calculate_urgency(time_left)
+        if urgency_level in ['紧急', '较紧急']:
+            current_to_deliver.append(order)
+        else:
+            updated_remaining_orders.append(order)
+
+    # 根据紧急程度决定本次配送和更新剩余订单列表
+    for order in new_orders:
+        point, priority, order_time, deadline = order
+        time_left = deadline - current_time
+        urgency_level = calculate_urgency(time_left)
+        if urgency_level in ['紧急', '较紧急']:
+            current_to_deliver.append(order)
+        else:
+            updated_remaining_orders.append(order)
+    if current_time == time_limit - t:
+        current_to_deliver.extend(updated_remaining_orders)
+    return current_to_deliver, updated_remaining_orders
+
+
+def calculate_urgency(time_left):
+    # 根据截止时间剩余的时间长度计算紧急程度
+    if time_left <= 30:
+        return '紧急'
+    elif time_left <= 90:
+        return '较紧急'
+    else:
+        return '一般'
 
 
 def maintain_order_counts(centers, points, orders):
@@ -229,6 +266,8 @@ def individual_fix(individual, order_counts):
     new_path = [[center] for center in centers]  # 为每个配送中心初始化一条路径
     while unvisited_points:
         point = unvisited_points.pop(0)
+        if order_counts[point[0]] == 0:
+            continue
         # 找到最近的配送中心
         nearest_center = min(centers, key=lambda center: distance_matrix[center[0]][point[0]])
         for path in new_path:
@@ -300,7 +339,7 @@ def mutate(individual):
     return individual
 
 
-def genetic_algorithm(centers, points, population_size, generations, max_distance, orders, order_counts, n):
+def genetic_algorithm(centers, points, population_size, generations, max_distance, order_counts, n):
     population = initialize_population(centers, points, population_size, max_distance, order_counts, n)
     best_individual = None
     best_fitness = float('-inf')
@@ -314,7 +353,6 @@ def genetic_algorithm(centers, points, population_size, generations, max_distanc
         for _ in range(population_size // 2):
             parent1, parent2 = selection(population, fitnesses)
             child1, child2 = pmx_crossover(parent1, parent2)
-            # child1, child2 = parent1, parent2
             mutate(child1)
             mutate(child2)
             new_population.extend([child1, child2])
@@ -327,7 +365,7 @@ def genetic_algorithm(centers, points, population_size, generations, max_distanc
         if current_fitness > best_fitness:
             best_fitness = current_fitness
             best_individual = current_best
-        print(f"Generation {generation + 1}: Best Fitness = {best_fitness}")
+        # print(f"Generation {generation + 1}: Best Fitness = {best_fitness}")
 
     return [path for path in best_individual if len(path) > 2]
 
@@ -372,7 +410,7 @@ def plot_map(centers, points, paths, max_distance):
     plt.show()
 
 
-def print_best_individual(best_result):
+def print_best_individual(best_result, orders):
     print("最优路径和路径长度：")
     for path in best_result:
         path_str = " -> ".join(str(point[0]) for point in path)
@@ -390,23 +428,34 @@ def print_best_individual(best_result):
                 order_priority = order[1]
                 order_time = order[2]
                 order_deadline = order[3]
-                print(f"  点 {point_id} 的订单 - 优先级: {order_priority}, 下单时间: {order_time}, 截止时间: {order_deadline}")
+                print(f"  点 {point_id} 的订单 - 优先级: {order_priority}, 下单时间: {order_time // 60} 小时 {order_time % 60} 分钟, 截止时间: {order_deadline // 60} 小时 {order_deadline % 60}")
 
 
 # 生成地图
 centers, points, distance_matrix = generate_map(num_centers, num_points, map_size, max_distance)
-
 orders = []
+total_daily_distance = 0
+todo_list = []
+for current_time in range(0, time_limit, t):
+    # 生成当前时间段的订单
+    new_orders = generate_orders(current_time, points)
+    current_orders, todo_list = process_orders(new_orders, todo_list, current_time)
+    # 计算订单数量统计
+    order_counts = maintain_order_counts(centers, points, current_orders)
+    print(f"当前时间： {current_time} order_counts: {order_counts}")
+    # 运行遗传算法优化路径规划
+    best_result = genetic_algorithm(centers, points, population_size, generations, max_distance, order_counts, n)
+    current_best_distance = sum(distance_matrix[path[i][0]][path[i + 1][0]] for path in best_result for i in range(len(path) - 1))
+    total_daily_distance += current_best_distance
+    # 输出最优路径
+    hours = current_time // 60
+    minutes = current_time % 60
+    print(f"当前时间: {hours} 小时 {minutes} 分钟")
+    print_best_individual(best_result, current_orders)
+    # 绘制最佳路径
+    plot_map(centers, points, best_result, max_distance)
+
+print("所有时间段订单处理完毕。")
 
 
-
-# 生成订单
-orders = generate_orders(points)
-order_counts = maintain_order_counts(centers, points, orders)
-# 运行遗传算法
-best_result = genetic_algorithm(centers, points, population_size, generations, max_distance, orders, order_counts, n)
-
-print_best_individual(best_result)
-
-# 绘制最佳路径
-plot_map(centers, points, best_result, max_distance)
+print(f"总路径长度: {total_daily_distance:.2f}")
