@@ -4,6 +4,7 @@ import math
 import matplotlib.pyplot as plt
 from pylab import mpl
 from matplotlib.patches import Circle
+import time
 
 # 设置显示中文字体
 mpl.rcParams["font.sans-serif"] = ["SimHei"]
@@ -19,8 +20,8 @@ max_distance = 20
 speed = 60
 time_limit = 24 * 60
 priority_weights = {'一般': 1, '较紧急': 2, '紧急': 3}
-population_size = 100
-generations = 20
+population_size = 500
+generations = 30
 mutation_rate = 0.3
 crossover_rate = 0.9
 
@@ -365,7 +366,7 @@ def genetic_algorithm(centers, points, population_size, generations, max_distanc
         if current_fitness > best_fitness:
             best_fitness = current_fitness
             best_individual = current_best
-        # print(f"Generation {generation + 1}: Best Fitness = {best_fitness}")
+        print(f"Generation {generation + 1}: Best Fitness = {best_fitness}")
 
     return [path for path in best_individual if len(path) > 2]
 
@@ -439,12 +440,17 @@ todo_list = []
 for current_time in range(0, time_limit, t):
     # 生成当前时间段的订单
     new_orders = generate_orders(current_time, points)
+    start_time = time.time()  # 获取开始时间
     current_orders, todo_list = process_orders(new_orders, todo_list, current_time)
     # 计算订单数量统计
     order_counts = maintain_order_counts(centers, points, current_orders)
     print(f"当前时间： {current_time} order_counts: {order_counts}")
     # 运行遗传算法优化路径规划
     best_result = genetic_algorithm(centers, points, population_size, generations, max_distance, order_counts, n)
+    # 获取结束时间
+    end_time = time.time()
+    use_time = end_time - start_time
+    print(f"决策用时: {use_time:.2f}s")
     current_best_distance = sum(distance_matrix[path[i][0]][path[i + 1][0]] for path in best_result for i in range(len(path) - 1))
     total_daily_distance += current_best_distance
     # 输出最优路径
